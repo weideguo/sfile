@@ -64,9 +64,8 @@ class SfileServer(object):
         file_md5_name="."+os.path.basename(self.file_md5)+".swp"
         #vim的锁文件，确保vim写的安全
         self.lock_file=os.path.join(file_md5_path,file_md5_name)
-
-        #最初读取的配置，不应该改变
-        self._conn_file = set()
+        #锁目录，用于存储标记文件正在处理（下载/移动/复制）的锁
+        self.lock_path= "/tmp"
 
         #是否严格检查，如下载时检查md5
         self.strict_check = True
@@ -85,9 +84,7 @@ class SfileServer(object):
             if (host,port) != (self.host,self.port):
                 self.conn_queue.put((host,port))
                 self.conn_file.add((host,port))
-
-        self._conn_file=copy.deepcopy(self.conn_file)
-
+        
         for l in file_lib.get_content(self.file_md5):
             l=l.strip()
             md5_str=l.split(" ")[0].strip()
@@ -262,10 +259,10 @@ class SfileServer(object):
                 filename=filename.decode("utf8")
                 _filename=os.path.join(self.default_path,filename)
                 md5=md5.decode("utf8")
-                
+                logger.debug(filename+" "+md5+" "+str(content_len))
                 try:
                     _content_len = file_lib.write(_filename,sock,content_len)
-
+                    
                     host,port = addr
                     if content_len != _content_len:
                         raise Exception("%s:%d %s %d %d download success but file length different" % (host,port,filename,content_len,_content_len))
@@ -276,7 +273,7 @@ class SfileServer(object):
                             raise Exception("%s:%d %s download success but md5 different" % (host,port,filename))
 
                     self.md5_list.add((md5,filename)) 
-                    tmp_lock=file_lib.lock_file(self.default_path,md5,filename)
+                    tmp_lock=file_lib.lock_file(self.lock_path,md5,filename)
                     FileLock().remove_lock(tmp_lock)
                 except:
                     if addr in self.md5_list:
@@ -294,7 +291,7 @@ class SfileServer(object):
 
                     if (md5_str,filename) not in self.md5_list:
                         #创建一个锁文件标记已经被处理，其他线程不再处理
-                        tmp_lock=file_lib.lock_file(self.default_path,md5_str,filename)
+                        tmp_lock=file_lib.lock_file(self.lock_path,md5_str,filename)
                         is_opt=True
                         try:
                             FileLock().get_lock(tmp_lock)
@@ -462,18 +459,18 @@ class SfileServer(object):
                         filename=l.split(md5_str)[1].strip()
                         _md5_file.add((md5_str,filename))
 
-                    #配置文件减少（需要再次下载）
+                    #跟上次读取时对比
+                    #配置文件减少（其他服同步时会再次下载并添加配置）
                     minus =  self.md5_file - _md5_file
-                    #配置文件新增
+                    #配置文件新增（通知其他服文件可用）
                     add =  _md5_file - self.md5_file
-                    self.md5_file.update(add)
                     self.md5_list.update(add)
-
-                    self.md5_file=self.md5_list - minus
                     self.md5_list=self.md5_list - minus
 
-                    logger.debug("change "+str(add)+"   "+str(minus))
+                    self.md5_file=copy.deepcopy(_md5_file)
 
+                    logger.debug("change "+str(add)+"   "+str(minus))
+                    
                     if (_md5_file - self.md5_list) or (self.md5_list - _md5_file):
                         _line_list=["%s  %s" % (md5_Str,filename) for md5_Str,filename in self.md5_list]
                         file_lib.rewrite(self.file_md5, _line_list)
@@ -489,7 +486,7 @@ class SfileServer(object):
                 logger.debug("skip rewrite md5 info cause \"%s\" exist" % self.lock_file)
 
 
-            time.sleep(30)
+            time.sleep(10)
 
     
     def __file_listen(self):
