@@ -9,6 +9,8 @@ import socket
 from threading import Thread,Lock
 from traceback import format_exc
 
+from watchdog.observers import Observer
+
 import sys
 if sys.version_info>(3,0):
     import queue as Queue
@@ -20,6 +22,7 @@ from lib.logger import logger,logger_err
 from lib import socket_lib
 from lib import file_lib
 from lib.safe_type import FileLock
+from lib.file_listen import FileEventHandler
 
 
 class SfileServer(object):
@@ -97,7 +100,7 @@ class SfileServer(object):
         if len(file_list) != len(set(file_list)):
             #md5配置不应该存在重复的文件名
             raise Exception("filename duplicated")
-
+    
     def do_request(self,sock,addr,id):
         """
         响应请求
@@ -248,7 +251,7 @@ class SfileServer(object):
                 _len=socket_lib.get_length(sock)
                 error_info=sock.recv(_len)
                 sock.recv(2)
-                logger.error(error_info.decode("utf8"))
+                logger_err.error(error_info.decode("utf8"))
 
             elif msg_type==self.msg_types[1]:
                 """
@@ -278,7 +281,7 @@ class SfileServer(object):
                 except:
                     if addr in self.md5_list:
                         self.md5_list.remove(addr)
-                    logger.error(format_exc())
+                    logger_err.error(format_exc())
 
                 #logger.debug("get file from %s %s %s %s" % (str(addr),_filename,md5,_md5))
 
@@ -311,10 +314,9 @@ class SfileServer(object):
                                     logger.debug("skip %s %s" % (md5_str,filename)) 
                                 else:
                                     #自己的优先级更低，则处理
-                                    _md5_str=""
                                     for m,f in _md5_list:
                                         if f==filename:
-                                            self.md5_list.remove((_md5_str,filename)) 
+                                            self.md5_list.remove((m,f)) 
 
                                     logger.debug("mv %s %s" % (filename ,"/tmp"))  
                                     try:
@@ -388,10 +390,8 @@ class SfileServer(object):
                 else:
                     logger.debug("unknown")
                     logger.debug(unknown)
-            
-        
-
-  
+    
+    
     def __conn(self):
         """
         连接其他的服务获取消息（主信息，md5信息）更新于本地/下拉文件
@@ -462,7 +462,7 @@ class SfileServer(object):
                     #跟上次读取时对比
                     #配置文件减少（其他服同步时会再次下载并添加配置）
                     minus =  self.md5_file - _md5_file
-                    #配置文件新增（通知其他服文件可用）
+                    #配置文件新增（通知其他服文件可用 ）
                     add =  _md5_file - self.md5_file
                     self.md5_list.update(add)
                     self.md5_list=self.md5_list - minus
@@ -472,7 +472,7 @@ class SfileServer(object):
                     logger.debug("change "+str(add)+"   "+str(minus))
                     
                     if (_md5_file - self.md5_list) or (self.md5_list - _md5_file):
-                        _line_list=["%s  %s" % (md5_Str,filename) for md5_Str,filename in self.md5_list]
+                        _line_list=["%s  %s" % (md5_str,filename) for md5_str,filename in self.md5_list]
                         file_lib.rewrite(self.file_md5, _line_list)
                         self.md5_file=copy.deepcopy(self.md5_list)
                         logger.debug("rewrite md5 info")
@@ -491,25 +491,31 @@ class SfileServer(object):
     
     def __file_listen(self):
         """
-        可选是否启动 
-        #文件主动发现，通过检查目录下的所有文件，可选是否全部验证md5，或者只是更新不存在的文件的md5
-        #主动监听指定目录并更新md5文件
-        #不启用则为文件被动发现 查看记录md5的配置文件，由其他程序更改
+        主动监目录并更新md5文件
         """
-        pass
-
+        
+        listen_path = self.default_path
+        observer = Observer()
+        event_handler = FileEventHandler(file_md5=self.file_md5,listen_path=listen_path)
+        observer.schedule(event_handler, listen_path, True)
+        observer.start()
+        observer.join()
 
 
     def start(self):
         t_list=[]
+        #从只有两个操作
+        t=Thread(target=self.__conn)
+        t_list.append(t)
+        t=Thread(target=self.__config_rewrite)
+        t_list.append(t)
+
+        #以下操作主独有
         t=Thread(target=self.__listen)
         t_list.append(t)
         t=Thread(target=self.__send)
         t_list.append(t)
-        t=Thread(target=self.__conn)
-        t_list.append(t)
-        
-        t=Thread(target=self.__config_rewrite)
+        t=Thread(target=self.__file_listen)
         t_list.append(t)
 
         for t in t_list:

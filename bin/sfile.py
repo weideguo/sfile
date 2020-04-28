@@ -4,8 +4,12 @@
 #simple sync file server
 #by weideguo in 20200415
 import os
+import sys
 import time
 
+base_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(base_dir)
+from core.sfile_server import SfileServer
 
 if __name__ == "__main__":
     """
@@ -34,8 +38,7 @@ if __name__ == "__main__":
     #文件的默认根目录
     default_path="/tmp/b"
 
-    from core.sfile_server import SfileServer
-    config_path=os.path.dirname(os.path.abspath(__file__))
+    config_path=os.path.join(base_dir,"conf")
     ss=SfileServer(priority,role,bind,default_path,config_path)
     ss.start()
     
