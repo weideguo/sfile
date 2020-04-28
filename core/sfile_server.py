@@ -26,10 +26,9 @@ from lib.file_listen import FileEventHandler
 
 
 class SfileServer(object):
-    def __init__(self,priority,role,bind,default_path,config_path,file_md5="md5.txt",master_config="sfile.conf"):
+    def __init__(self,priority,bind,default_path,config_path,file_md5="md5.txt",master_config="sfile.conf"):
+        #优先级为负数则说明是slave
         self.priority     = priority    
-        #self.priority     = 1
-        self.role         = role
         self.bind         = bind
         self.default_path = default_path
         self.config_path  = config_path
@@ -308,7 +307,7 @@ class SfileServer(object):
 
                             if filename in [x[1] for x in _md5_list]:
                                 #文件存在，但md5不同
-                                if priority > self.priority:
+                                if (priority > self.priority) and (self.priority > 0):
                                     #自己的优先级更高，不处理，其他线程继续处理
                                     FileLock().remove_lock(tmp_lock)
                                     logger.debug("skip %s %s" % (md5_str,filename)) 
@@ -511,12 +510,13 @@ class SfileServer(object):
         t_list.append(t)
 
         #以下操作主独有
-        t=Thread(target=self.__listen)
-        t_list.append(t)
-        t=Thread(target=self.__send)
-        t_list.append(t)
-        t=Thread(target=self.__file_listen)
-        t_list.append(t)
+        if self.priority > 0:
+            t=Thread(target=self.__listen)
+            t_list.append(t)
+            t=Thread(target=self.__send)
+            t_list.append(t)
+            t=Thread(target=self.__file_listen)
+            t_list.append(t)
 
         for t in t_list:
             t.start()
