@@ -24,8 +24,8 @@ if __name__ == "__main__":
     高低优先级同时存在的配置信息，以高的为准，低的抛弃
     优先级为负数则说明是slave
     """
-    #priority=int(time.time())
-    priority=-1
+    priority=int(time.time())
+    #priority=-1
     """
     主之间完全同步信息，即一个主向其他所有主询问，自己也回应信息
     从只从任意一个主获取信息，从只能下拉文件，不回应信息

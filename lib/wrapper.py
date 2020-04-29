@@ -13,3 +13,17 @@ def error_capture(func):
             logger_err.error(format_exc())
         
     return _wrapper
+
+
+def encrypt_send(sock,data):
+    """
+    加密传输
+    """
+    pass
+
+
+def decrypt_recv(sock):
+    """
+    获取数据并解密
+    """
+    pass

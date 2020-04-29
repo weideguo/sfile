@@ -26,14 +26,14 @@ from lib.file_listen import FileEventHandler
 
 
 class SfileServer(object):
-    def __init__(self,priority,bind,default_path,config_path,file_md5="md5.txt",master_config="sfile.conf"):
+    def __init__(self,priority,bind,default_path,config_path,file_md5="md5.txt",file_conn="sfile.conf"):
         #优先级为负数则说明是slave
         self.priority     = priority    
         self.bind         = bind
         self.default_path = default_path
         self.config_path  = config_path
         self.file_md5     = os.path.join(config_path,file_md5)
-        self.file_master_config = os.path.join(config_path,master_config)        
+        self.file_conn    = os.path.join(config_path,file_conn)        
         
         self.host=self.bind.split(":")[0].strip()
         self.port=int(self.bind.split(":")[1].strip())
@@ -52,13 +52,11 @@ class SfileServer(object):
         self.conn_list = set()
         #自己要连接别的服务的队列
         self.conn_queue = Queue.Queue()
-        self.conn_list_lock = Lock()
         #配置文件中的连接信息
         self.conn_file = set()
 
         #md5的信息列表
         self.md5_list = set()
-        self.md5_list_lock = Lock()
         #配置文件中的md5信息
         self.md5_file = set()
 
@@ -72,6 +70,7 @@ class SfileServer(object):
         #是否严格检查，如下载时检查md5
         self.strict_check = True
 
+        self.sock_send_lock = Lock()
         self.init()
 
 
@@ -79,7 +78,7 @@ class SfileServer(object):
         """
         一些初始化操作：连接列表，md5列表
         """
-        for l in file_lib.get_content(self.file_master_config):
+        for l in file_lib.get_content(self.file_conn):
             l=l.strip()
             host=l.split(":")[0].strip()
             port=int(l.split(":")[1].strip())
@@ -109,7 +108,7 @@ class SfileServer(object):
                 #逐行读取，即一行以"\n"结尾
                 #使用latin1编码，单字节编码，不会丢失数据
                 data=socket_lib.readline(sock).decode("latin1").strip()
-                #logger.info("X"+data+"X")
+                
             except:
                 logger.error(format_exc())
                 break
@@ -130,28 +129,45 @@ class SfileServer(object):
                         filename_r=filename.encode("latin1").decode("utf8")
                         filename_r=os.path.join(self.default_path,filename_r)
                         md5 = utils.my_md5(file=filename_r)
-                        #以二进制读取文件
+                        """
+                        #以二进制读取文件  
                         with open(filename_r,"rb") as f:
                             #使用latin1编码，单字节编码，不会丢失数据
                             #大文件不适用，全部加载到内存会导致被挤爆！！！！！
                             content=f.read().decode("latin1")                
                             c_length=len(content)
                             n_length=len(filename)
-                            send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n%s\r\n" % (self.msg_types[1],n_length,filename,md5,c_length,content)                  
+                            send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n%s\r\n" % (self.msg_types[1],n_length,filename,md5,c_length,content)  
+                            with self.sock_send_lock:
+                                sock.sendall(send_data.encode("latin1")) 
+                        """
+                        c_length=os.path.getsize(filename_r)
+                        n_length=len(filename)
+                        with self.sock_send_lock:
+                            send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n" % (self.msg_types[1],n_length,filename,md5,c_length)
+                            sock.sendall(send_data.encode("latin1")) 
+                            f=open(filename_r,"rb")
+                            sock.sendfile(f)
+                            f.close()
+                            sock.sendall("\r\n".encode("latin1")) 
                     except:
                         error_data="\"%s\" read failed" % filename
                         send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[0],len(error_data),error_data)
-                        logger.error(format_exc())
-                    
+
+                        with self.sock_send_lock:
+                            sock.sendall(send_data.encode("latin1"))
+                        logger_err.error(format_exc())
+
                 else:
                     """
                     其他命令不支持
                     """
                     error_data="\"%s\" is unknown" % data
                     send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[0],len(error_data),error_data)
-                
-                send_data=send_data.encode("latin1")
-                sock.send(send_data)
+                    #服务端的发送
+                    with self.sock_send_lock:
+                        #持续发送直至完全完成 而send方法可能只发送部分数据
+                        sock.sendall(send_data.encode("latin1"))
 
         sock.close()
         #连接关闭则从队列中弹出
@@ -173,13 +189,12 @@ class SfileServer(object):
         s.listen(0)   
         threads=[]
         while True:   
-            #id = uuid.uuid1().hex
             id = self.priority
             sock,addr=s.accept() 
 
             #接受到连接时立即向其发送自己的优先级
             pror="%s\r\n%d\r\n%d\r\n" % (self.msg_types[4],len(str(self.priority)),self.priority)
-            sock.send(pror.encode("utf8"))
+            sock.sendall(pror.encode("utf8"))
 
             #然后后台处理
             #主动发送队列
@@ -191,7 +206,8 @@ class SfileServer(object):
         for t in threads:
             t.join()
 
-        logger.info("all exit")
+        #如果运行到此，说明出现错误
+        logger_err.error("tcp server exit")
     
     
     def do_send(self,sock,addr,id):
@@ -207,7 +223,9 @@ class SfileServer(object):
             _content=_content[:-1]  #去除最后一个"\n
             _len=len(_content.encode("utf8"))
             content = "%s\r\n%d\r\n%s\r\n" % (tag,_len,_content)
-            sock.send(content.encode("utf8"))
+            #服务端的发送 需要锁防止对发送文件形成干扰
+            with self.sock_send_lock:
+                sock.sendall(content.encode("utf8"))
 
         try:
             _socket_send(self.msg_types[2],self.md5_list)
@@ -224,13 +242,11 @@ class SfileServer(object):
         主动发送，只有master启用
         """
         while True:
-            logger.debug("----------------------------------------")
             for id in self.listen_list.keys():
                 sock,addr = self.listen_list[id]
                 t=Thread(target=self.do_send,args=(sock,addr,id))
                 t.start()
-                logger.debug(str(sock)+" "+str(addr) )
-            logger.debug("----------------------------------------")
+                logger.debug("send to client: " +str(sock)+" "+str(addr) )
             time.sleep(10)  
 
 
@@ -261,7 +277,7 @@ class SfileServer(object):
                 filename=filename.decode("utf8")
                 _filename=os.path.join(self.default_path,filename)
                 md5=md5.decode("utf8")
-                logger.debug(filename+" "+md5+" "+str(content_len))
+                logger.debug("get file info: %s %s %d" % (filename,md5,content_len))
                 try:
                     _content_len = file_lib.write(_filename,sock,content_len)
                     
@@ -277,12 +293,11 @@ class SfileServer(object):
                     self.md5_list.add((md5,filename)) 
                     tmp_lock=file_lib.lock_file(self.lock_path,md5,filename)
                     FileLock().remove_lock(tmp_lock)
+                    logger.debug("get file done: %s %s %d" % (filename,md5,content_len))
                 except:
                     if addr in self.md5_list:
                         self.md5_list.remove(addr)
                     logger_err.error(format_exc())
-
-                #logger.debug("get file from %s %s %s %s" % (str(addr),_filename,md5,_md5))
 
             elif msg_type==self.msg_types[2]:
                 """
@@ -310,7 +325,7 @@ class SfileServer(object):
                                 if (priority > self.priority) and (self.priority > 0):
                                     #自己的优先级更高，不处理，其他线程继续处理
                                     FileLock().remove_lock(tmp_lock)
-                                    logger.debug("skip %s %s" % (md5_str,filename)) 
+                                    logger.debug("skip %s %s cause priority %d > %d" % (md5_str,filename,priority,self.priority)) 
                                 else:
                                     #自己的优先级更低，则处理
                                     for m,f in _md5_list:
@@ -324,7 +339,7 @@ class SfileServer(object):
                                         #不必下载文件，标记下次下载
                                         FileLock().remove_lock(tmp_lock)
                                     except:
-                                        logger.debug(format_exc())
+                                        logger_err.error(format_exc())
 
                             elif md5_str in [x[0] for x in _md5_list]:   
                                 #md5存在，应该复制文件
@@ -332,26 +347,24 @@ class SfileServer(object):
                                     if m==md5_str:
                                         logger.debug("copy %s %s" % (f,filename) )
                                         f=os.path.join(self.default_path,f)
-
                                         try:
                                             file_lib.copy(f,_filename)
                                             self.md5_list.add((md5_str,filename)) 
                                             FileLock().remove_lock(tmp_lock)
                                         except:
-                                            logger.debug(format_exc())
+                                            logger_err.error(format_exc())
 
                                         break
                                     
                             else:
                                 #发起下载
                                 download="%s %s\n" % (self.cmd_type[2],filename)
-                                sock.send(download.encode("utf8"))
+                                sock.sendall(download.encode("utf8"))
                                 logger.debug(download)
                         else:
                             logger.debug("\"%s\" lock exist, ignore operation" % tmp_lock)
                         
                 sock.recv(2)
-                #logger.debug("%d %d" % (priority,self.priority))
                 logger.debug(self.md5_list)
 
             elif msg_type==self.msg_types[3]:
@@ -387,7 +400,7 @@ class SfileServer(object):
                     self.conn_queue.put(addr)
                     break
                 else:
-                    logger.debug("unknown")
+                    logger.debug("get unknown info, read 1024 byte:")
                     logger.debug(unknown)
     
     
@@ -437,16 +450,15 @@ class SfileServer(object):
             if self.conn_list:
                 if (self.conn_list-self.conn_file) or (self.conn_file-self.conn_list):
                     _line_list=["%s:%d" % addr for addr in self.conn_list]
-                    file_lib.rewrite(self.file_master_config, _line_list)
+                    file_lib.rewrite(self.file_conn, _line_list)
                     self.conn_file=copy.deepcopy(self.conn_list)
-                    logger.debug("rewrite conn info")
+                    logger.debug("rewrite conn file")
                 else:
-                    logger.debug("rewrite conn info skip")
+                    logger.debug("rewrite conn file skip")
             
-
             #配置文件不支持减少，如果减少，会被再次同步回来
             #必须使用vim编辑md5配置文件，或者其他在编辑前检查vim锁文件
-            #当程序获得锁，vim不能编辑
+            #当程序获得锁，vim不能编；反之亦可
             try:
                 #os.mknod(self.lock_file)
                 with FileLock(self.lock_file):
@@ -468,23 +480,22 @@ class SfileServer(object):
 
                     self.md5_file=copy.deepcopy(_md5_file)
 
-                    logger.debug("change "+str(add)+"   "+str(minus))
+                    logger.debug("md5 config change add: "+str(add)+"  minus: "+str(minus))
                     
                     if (_md5_file - self.md5_list) or (self.md5_list - _md5_file):
                         _line_list=["%s  %s" % (md5_str,filename) for md5_str,filename in self.md5_list]
                         file_lib.rewrite(self.file_md5, _line_list)
                         self.md5_file=copy.deepcopy(self.md5_list)
-                        logger.debug("rewrite md5 info")
+                        logger.debug("rewrite md5 file")
                     else:
-                        logger.debug("rewrite md5 info skip")
+                        logger.debug("rewrite md5 file skip")
 
                 #移除锁文件
                 #os.remove(self.lock_file)   
             except (OSError,FileExistsError):
                 #创建vim锁失败，说明有vim在编辑，跳过回写操作一次
-                logger.debug("skip rewrite md5 info cause \"%s\" exist" % self.lock_file)
-
-
+                logger.debug("skip rewrite md5 file cause \"%s\" exist" % self.lock_file)
+            
             time.sleep(10)
 
     
@@ -492,7 +503,6 @@ class SfileServer(object):
         """
         主动监目录并更新md5文件
         """
-        
         listen_path = self.default_path
         observer = Observer()
         event_handler = FileEventHandler(file_md5=self.file_md5,listen_path=listen_path)
