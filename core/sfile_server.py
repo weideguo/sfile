@@ -16,6 +16,7 @@ if sys.version_info>(3,0):
     import queue as Queue
 else:
     import Queue
+    BrokenPipeError=socket.error
 
 from lib import utils
 from lib.logger import logger,logger_err
@@ -26,7 +27,7 @@ from lib.file_listen import FileEventHandler
 
 
 class SfileServer(object):
-    def __init__(self,priority,bind,default_path,config_path,file_md5="md5.txt",file_conn="sfile.conf"):
+    def __init__(self,priority,bind,default_path,config_path,file_md5="md5.txt",file_conn="sfile.conf",auth=""):
         #优先级为负数则说明是slave
         self.priority     = priority    
         self.bind         = bind
@@ -38,11 +39,13 @@ class SfileServer(object):
         self.host=self.bind.split(":")[0].strip()
         self.port=int(self.bind.split(":")[1].strip())
 
+        self.auth=auth
+
         #响应其他连接的操作类型
-        self.cmd_type=["quit","exit","getfile"]
+        self.cmd_type=["quit","exit","getfile","auth"]
 
         #连接其他服务获得的消息类型，恒为4字节
-        self.msg_types=["erro","file","fmd5","info","pror"]
+        self.msg_types=["erro","file","fmd5","info","pror","succ"]
 
         #内置类型线程安全
         #连接自己的列表
@@ -99,10 +102,29 @@ class SfileServer(object):
             #md5配置不应该存在重复的文件名
             raise Exception("filename duplicated")
     
+    def get_md5(self):
+        """
+        计算监听目录下所有文件的md5，并更新到md5配置文件。在实例化后可选是否调用该函数
+        """
+        pass
+
+
     def do_request(self,sock,addr,id):
         """
         响应请求
         """
+        def send_priority():
+            #其发送自己的优先级
+            pror="%s\r\n%d\r\n%d\r\n" % (self.msg_types[4],len(str(self.priority)),self.priority)
+            sock.sendall(pror.encode("utf8"))
+
+        if not self.auth:
+            """
+            不需要密码认证时
+            """
+            self.listen_list[id]=(sock,addr) 
+            send_priority()
+
         while True:
             try:
                 #逐行读取，即一行以"\n"结尾
@@ -119,54 +141,88 @@ class SfileServer(object):
                 """
                 break
             else:
-                if data.split(" ")[0]==self.cmd_type[2]:
+                if data.split(" ")[0]==self.cmd_type[3]:
                     """
-                    处理文件请求
+                    处理认证
                     """
-                    filename=data.split(self.cmd_type[2])[-1].strip()
-                    try:
-                        #读取文件时需要转换成utf8，兼容中文
-                        filename_r=filename.encode("latin1").decode("utf8")
-                        filename_r=os.path.join(self.default_path,filename_r)
-                        md5 = utils.my_md5(file=filename_r)
-                        """
-                        #以二进制读取文件  
-                        with open(filename_r,"rb") as f:
-                            #使用latin1编码，单字节编码，不会丢失数据
-                            #大文件不适用，全部加载到内存会导致被挤爆！！！！！
-                            content=f.read().decode("latin1")                
-                            c_length=len(content)
-                            n_length=len(filename)
-                            send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n%s\r\n" % (self.msg_types[1],n_length,filename,md5,c_length,content)  
-                            with self.sock_send_lock:
-                                sock.sendall(send_data.encode("latin1")) 
-                        """
-                        c_length=os.path.getsize(filename_r)
-                        n_length=len(filename)
-                        with self.sock_send_lock:
-                            send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n" % (self.msg_types[1],n_length,filename,md5,c_length)
-                            sock.sendall(send_data.encode("latin1")) 
-                            f=open(filename_r,"rb")
-                            sock.sendfile(f)
-                            f.close()
-                            sock.sendall("\r\n".encode("latin1")) 
-                    except:
-                        error_data="\"%s\" read failed" % filename
+                    _auth=data.split(self.cmd_type[3])[-1].strip()
+                    if not self.auth:
+                        info_data="no auth neeeded"
+                        send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[5],len(info_data),info_data)
+                    elif _auth==self.auth:
+                        self.listen_list[id]=(sock,addr) 
+                        send_priority()
+                        info_data="login success"
+                        send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[5],len(info_data),info_data)
+                    else:
+                        error_data="auth failed"
                         send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[0],len(error_data),error_data)
 
-                        with self.sock_send_lock:
-                            sock.sendall(send_data.encode("latin1"))
-                        logger_err.error(format_exc())
-
-                else:
-                    """
-                    其他命令不支持
-                    """
-                    error_data="\"%s\" is unknown" % data
-                    send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[0],len(error_data),error_data)
-                    #服务端的发送
                     with self.sock_send_lock:
-                        #持续发送直至完全完成 而send方法可能只发送部分数据
+                        sock.sendall(send_data.encode("latin1"))
+                elif (id in self.listen_list) and (self.listen_list[id]==(sock,addr)):
+                    #已经登陆
+                    if (data.split(" ")[0]==self.cmd_type[2]):
+                        """
+                        处理文件请求
+                        """
+                        filename=data.split(self.cmd_type[2])[-1].strip()
+                        try:
+                            #读取文件时需要转换成utf8，兼容中文
+                            filename_r=filename.encode("latin1").decode("utf8")
+                            filename_r=os.path.join(self.default_path,filename_r)
+                            md5 = utils.my_md5(file=filename_r)
+                            """
+                            #以二进制读取文件  
+                            with open(filename_r,"rb") as f:
+                                #使用latin1编码，单字节编码，不会丢失数据
+                                #大文件不适用，全部加载到内存会导致被挤爆！！！！！
+                                content=f.read().decode("latin1")                
+                                c_length=len(content)
+                                n_length=len(filename)
+                                send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n%s\r\n" % (self.msg_types[1],n_length,filename,md5,c_length,content)  
+                                with self.sock_send_lock:
+                                    sock.sendall(send_data.encode("latin1")) 
+                            """
+                            c_length=os.path.getsize(filename_r)
+                            n_length=len(filename)
+                            with self.sock_send_lock:
+                                send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n" % (self.msg_types[1],n_length,filename,md5,c_length)
+                                sock.sendall(send_data.encode("latin1")) 
+                                #f=open(filename_r,"rb")
+                                ##python2没有sendfile？
+                                #sock.sendfile(f)
+                                #f.close()
+                                with open(filename_r,"rb") as f:
+                                    d=f.read(1024)
+                                    while d:
+                                        sock.sendall(d)
+                                        d=f.read(1024)
+                                
+                                sock.sendall("\r\n".encode("latin1")) 
+                        except:
+                            error_data="\"%s\" read failed" % filename
+                            send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[0],len(error_data),error_data)
+
+                            with self.sock_send_lock:
+                                sock.sendall(send_data.encode("latin1"))
+                            logger_err.error(format_exc())
+
+                    else:
+                        """
+                        其他命令不支持
+                        """
+                        error_data="\"%s\" is unknown" % data
+                        send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[0],len(error_data),error_data)
+                        #服务端的发送
+                        with self.sock_send_lock:
+                            #持续发送直至完全完成 而send方法可能只发送部分数据
+                            sock.sendall(send_data.encode("latin1"))
+                else:
+                    #未登陆
+                    error_data="auth required"
+                    send_data="%s\r\n%d\r\n%s\r\n" % (self.msg_types[0],len(error_data),error_data)
+                    with self.sock_send_lock:
                         sock.sendall(send_data.encode("latin1"))
 
         sock.close()
@@ -192,14 +248,7 @@ class SfileServer(object):
             id = self.priority
             sock,addr=s.accept() 
 
-            #接受到连接时立即向其发送自己的优先级
-            pror="%s\r\n%d\r\n%d\r\n" % (self.msg_types[4],len(str(self.priority)),self.priority)
-            sock.sendall(pror.encode("utf8"))
-
-            #然后后台处理
-            #主动发送队列
-            self.listen_list[id]=(sock,addr)   
-            #响应请求        
+            #然后后台处理，响应请求        
             t=Thread(target=self.do_request,args=(sock,addr,id))
             t.start()
         
@@ -218,7 +267,8 @@ class SfileServer(object):
             _content=""
             for s1,s2 in content_list:
                 #文件以"\n"分割每一行（linux默认）
-                _content=_content+str(s1)+" "+str(s2)+"\n"
+                #_content=_content+str(s1)+" "+str(s2)+"\n"
+                _content=_content+("%s %s\n" % (s1,s2))
 
             _content=_content[:-1]  #去除最后一个"\n
             _len=len(_content.encode("utf8"))
@@ -228,6 +278,7 @@ class SfileServer(object):
                 sock.sendall(content.encode("utf8"))
 
         try:
+            logger.debug(self.md5_list)
             _socket_send(self.msg_types[2],self.md5_list)
         
             _conn_list={(self.host,self.port)}
@@ -235,7 +286,6 @@ class SfileServer(object):
             _socket_send(self.msg_types[3],_conn_list)
         except BrokenPipeError:
             self.listen_list.pop(id)
-    
 
     def __send(self):
         """
@@ -254,6 +304,12 @@ class SfileServer(object):
         """
         处理获取的信息
         """
+        if self.auth:
+            #需要认证时连接创建后发送认证请求
+            send_data="%s %s\n" % (self.cmd_type[3],self.auth)
+            sock.sendall(send_data.encode("utf8"))
+            logger.debug(str(addr)+" "+send_data)
+
         #连接的服务的优先级
         priority=0
         while True:
@@ -266,7 +322,7 @@ class SfileServer(object):
                 _len=socket_lib.get_length(sock)
                 error_info=sock.recv(_len)
                 sock.recv(2)
-                logger_err.error(error_info.decode("utf8"))
+                logger_err.error(str(addr)+" "+error_info.decode("utf8"))
 
             elif msg_type==self.msg_types[1]:
                 """
@@ -277,7 +333,7 @@ class SfileServer(object):
                 filename=filename.decode("utf8")
                 _filename=os.path.join(self.default_path,filename)
                 md5=md5.decode("utf8")
-                logger.debug("get file info: %s %s %d" % (filename,md5,content_len))
+                logger.debug("%s get file info: %s %s %d" % (str(addr),filename,md5,content_len))
                 try:
                     _content_len = file_lib.write(_filename,sock,content_len)
                     
@@ -293,7 +349,7 @@ class SfileServer(object):
                     self.md5_list.add((md5,filename)) 
                     tmp_lock=file_lib.lock_file(self.lock_path,md5,filename)
                     FileLock().remove_lock(tmp_lock)
-                    logger.debug("get file done: %s %s %d" % (filename,md5,content_len))
+                    logger.debug("%s get file done: %s %s %d" % (str(addr),filename,md5,content_len))
                 except:
                     if addr in self.md5_list:
                         self.md5_list.remove(addr)
@@ -313,6 +369,7 @@ class SfileServer(object):
                         try:
                             FileLock().get_lock(tmp_lock)
                         except:
+                            logger.debug(format_exc())
                             is_opt=False
 
                         if is_opt:
@@ -360,7 +417,7 @@ class SfileServer(object):
                                 #发起下载
                                 download="%s %s\n" % (self.cmd_type[2],filename)
                                 sock.sendall(download.encode("utf8"))
-                                logger.debug(download)
+                                logger.debug(str(addr)+" "+download)
                         else:
                             logger.debug("\"%s\" lock exist, ignore operation" % tmp_lock)
                         
@@ -385,7 +442,14 @@ class SfileServer(object):
                 _len=socket_lib.get_length(sock)
                 priority=int(sock.recv(_len))
                 sock.recv(2)
-            
+            elif msg_type==self.msg_types[5]:
+                """
+                获取一些成功的提示
+                """
+                _len=socket_lib.get_length(sock)
+                info=sock.recv(_len)
+                sock.recv(2)
+                logger.debug(str(addr)+" "+info.decode("utf8"))
             else:
                 """
                 未知的请求
@@ -400,7 +464,7 @@ class SfileServer(object):
                     self.conn_queue.put(addr)
                     break
                 else:
-                    logger.debug("get unknown info, read 1024 byte:")
+                    logger.debug("%s:%d get unknown info, read 1024 byte:" % addr)
                     logger.debug(unknown)
     
     

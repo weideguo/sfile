@@ -38,7 +38,10 @@ if __name__ == "__main__":
     default_path="/tmp/b"
 
     config_path=os.path.join(base_dir,"conf")
-    ss=SfileServer(priority,bind,default_path,config_path)
+    #不设置则不需要认证
+    auth="123456"
+    #auth=""
+    ss=SfileServer(priority,bind,default_path,config_path,auth=auth)
     ss.start()
     
 

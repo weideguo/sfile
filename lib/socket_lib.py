@@ -65,3 +65,63 @@ def readline(sock):
     l=l
     return l
 
+
+
+def get_socket(sock, sock_type=0):
+    """
+    由传入的套接字获取封装的套接字
+    """
+    if sock_type==0:
+        #最基本socket
+        return sock
+
+    elif sock_type==1:
+        #使用aes加密传输的socket
+
+        return AesSocket(sock)
+    
+    elif sock_type==2:
+        #使用ssl加密传输的socket
+        return None
+
+
+class AesSocket(object):
+    data=""
+
+    def __init__(self,sock):
+        self.sock=sock
+
+    def sendall(self,data):
+        """
+        加密传输
+        """
+        pass
+
+    def sendfile(self,file):
+        """
+        加密传输文件
+        传入二进制打开的文件流
+        """
+        pass
+
+
+    def recv(self,buffersize):
+        """
+        获取指定解密后的长度
+        """
+        if self.data:
+            _data = self.data[:buffersize]
+            self.data = self.data[buffersize:]
+            return _data
+        _len=get_length(self.sock)
+        self.sock.recv(2)
+        #获取一个加密单元并解密
+        #data=decrypt(self.sock,_len)
+        self.data=""
+        _date = self.data[:buffersize]
+        self.data = self.data[buffersize:]
+        return _data
+
+
+    def close(self):
+        self.sock.close()

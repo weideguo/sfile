@@ -18,8 +18,11 @@ def error_capture(func):
 def encrypt_send(sock,data):
     """
     加密传输
+    文件的加密每次加密1024字节，然后传输   分块数\r\n\密文长度\r\n密文\r\n ... 密文长度\r\n密文\r\n
     """
     pass
+
+
 
 
 def decrypt_recv(sock):

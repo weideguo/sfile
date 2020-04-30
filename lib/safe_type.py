@@ -18,6 +18,8 @@ class FileLock(object):
     
     @staticmethod
     def get_lock(lock_file):
+        #兼容python2，需要由unicode转成字节格式
+        lock_file=lock_file.encode("utf8")
         path=os.path.dirname(lock_file)
         if not os.path.exists(path):
             os.makedirs(path)
@@ -26,6 +28,7 @@ class FileLock(object):
     
     @staticmethod
     def remove_lock(lock_file):
+        lock_file=lock_file.encode("utf8")
         os.remove(lock_file)  
 
 

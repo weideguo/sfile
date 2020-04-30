@@ -3,6 +3,7 @@ import re
 import time
 import os
 import shutil
+import sys
 
 def get_content(filename):
     """
@@ -13,6 +14,9 @@ def get_content(filename):
     with open(filename) as f:
         l=f.readline()
         while l:
+            
+            if sys.version_info<(3,0):
+                l=l.decode("utf8")   #转成unicode，python2需要，python3默认直接转成unicode
             if re.match("^#.*",l) or not l.strip():
                 pass
             else:
@@ -29,6 +33,9 @@ def append_newline(filename,line):
     #print(filename,line)
     with open(filename,"a") as f:
         f.write("\n")
+        if sys.version_info<(3,0):
+            #python2 需要先由unicode转成字节格式
+            line=line.encode("utf8")
         f.write(line)
 
 
@@ -50,6 +57,9 @@ def rewrite(filename,line_list):
             f.write(l)
 
         for line in line_list:
+            if sys.version_info<(3,0):
+                #python2 需要先由unicode转成字节格式
+                line=line.encode("utf8")
             f.write(line)
             f.write("\n")
 

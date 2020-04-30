@@ -1,5 +1,6 @@
 #coding:utf8
 import os
+import sys
 import time
 
 from watchdog.events import FileSystemEventHandler
@@ -72,6 +73,9 @@ class FileEventHandler(FileSystemEventHandler):
         """
         处理文件添加的实际操作 往md5文件添加
         """
+        if sys.version_info<(3,0):
+            #python2 需要由字节码转成unicode
+            path=path.decode("utf8")
         #print("add: %s %s" % (md5,path))
         md5_list=self.get_md5_list()
         md5_list.add((md5,path))
@@ -82,6 +86,9 @@ class FileEventHandler(FileSystemEventHandler):
         """
         处理文件删除的实际操作 往md5文件删除
         """
+        if sys.version_info<(3,0):
+            #python2 需要由字节码转成unicode
+            path=path.decode("utf8")
         #获取相对目录
         _path = self.get_info(path,True)
         #print("remove: %s" % (_path))
