@@ -27,7 +27,7 @@ from lib.file_listen import FileEventHandler
 
 
 class SfileServer(object):
-    def __init__(self,priority,bind,default_path,config_path,file_md5="md5.txt",file_conn="sfile.conf",auth=""):
+    def __init__(self,priority,bind,default_path,config_path,socket_type,file_md5="md5.txt",file_conn="sfile.conf",auth=""):
         #优先级为负数则说明是slave
         self.priority     = priority    
         self.bind         = bind
@@ -72,8 +72,10 @@ class SfileServer(object):
 
         #是否严格检查，如下载时检查md5
         self.strict_check = True
-
+        #socket作为服务时使用多个线程发数据，需要确保线程间不相互影响
         self.sock_send_lock = Lock()
+        #使用的socket类型 0 未加密；1 aes加密；2 ssl加密
+        self.socket_type=socket_type
         self.init()
 
 
@@ -102,6 +104,7 @@ class SfileServer(object):
             #md5配置不应该存在重复的文件名
             raise Exception("filename duplicated")
     
+
     def get_md5(self):
         """
         计算监听目录下所有文件的md5，并更新到md5配置文件。在实例化后可选是否调用该函数
@@ -113,6 +116,7 @@ class SfileServer(object):
         """
         响应请求
         """
+        sock=socket_lib.get_socket(sock, self.socket_type)
         def send_priority():
             #其发送自己的优先级
             pror="%s\r\n%d\r\n%d\r\n" % (self.msg_types[4],len(str(self.priority)),self.priority)
@@ -172,18 +176,7 @@ class SfileServer(object):
                             filename_r=filename.encode("latin1").decode("utf8")
                             filename_r=os.path.join(self.default_path,filename_r)
                             md5 = utils.my_md5(file=filename_r)
-                            """
-                            #以二进制读取文件  
-                            with open(filename_r,"rb") as f:
-                                #使用latin1编码，单字节编码，不会丢失数据
-                                #大文件不适用，全部加载到内存会导致被挤爆！！！！！
-                                content=f.read().decode("latin1")                
-                                c_length=len(content)
-                                n_length=len(filename)
-                                send_data="%s\r\n%d\r\n%s\r\n%s\r\n%d\r\n%s\r\n" % (self.msg_types[1],n_length,filename,md5,c_length,content)  
-                                with self.sock_send_lock:
-                                    sock.sendall(send_data.encode("latin1")) 
-                            """
+
                             c_length=os.path.getsize(filename_r)
                             n_length=len(filename)
                             with self.sock_send_lock:
@@ -263,6 +256,7 @@ class SfileServer(object):
         """
         发送主信息，md5信息，配置信息必须为utf8编码
         """
+        sock=socket_lib.get_socket(sock, self.socket_type)
         def _socket_send(tag, content_list):
             _content=""
             for s1,s2 in content_list:
@@ -278,7 +272,7 @@ class SfileServer(object):
                 sock.sendall(content.encode("utf8"))
 
         try:
-            logger.debug(self.md5_list)
+            #logger.debug(self.md5_list)
             _socket_send(self.msg_types[2],self.md5_list)
         
             _conn_list={(self.host,self.port)}
@@ -304,6 +298,7 @@ class SfileServer(object):
         """
         处理获取的信息
         """
+        sock=socket_lib.get_socket(sock, self.socket_type)
         if self.auth:
             #需要认证时连接创建后发送认证请求
             send_data="%s %s\n" % (self.cmd_type[3],self.auth)
@@ -335,7 +330,7 @@ class SfileServer(object):
                 md5=md5.decode("utf8")
                 logger.debug("%s get file info: %s %s %d" % (str(addr),filename,md5,content_len))
                 try:
-                    _content_len = file_lib.write(_filename,sock,content_len)
+                    _content_len = socket_lib.write(sock,_filename,content_len)
                     
                     host,port = addr
                     if content_len != _content_len:

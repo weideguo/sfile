@@ -64,32 +64,6 @@ def rewrite(filename,line_list):
             f.write("\n")
 
 
-def write(filename,sock,content_len,max_len=1024):
-    """
-    从sock获取指定长度写入文件
-    """
-    path=os.path.dirname(filename)
-    if not os.path.exists(path):
-        os.makedirs(path)
-    
-    with open(filename,"wb") as f:
-        while True:
-            if not content_len:
-                sock.recv(2)
-                break
-            else:
-                #取小值
-                get_len =  max_len if (max_len<content_len) else content_len
-                #获取大量数据出现长度不匹配？
-                content=sock.recv(get_len)
-                f.write(content)
-                f.flush()
-                content_len=content_len-len(content)
-
-    return os.path.getsize(filename)
-
-
-
 def copy(srcfile,dstfile):
     """
     复制文件
@@ -127,3 +101,5 @@ def lock_file(default_path,md5_str,filename,dirname="lock"):
     组成一个格式化的锁文件路径
     """
     return os.path.join(default_path,"%s/%s__%s" % (dirname,md5_str,filename.replace("/","__")))
+
+

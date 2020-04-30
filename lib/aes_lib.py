@@ -57,7 +57,7 @@ class AesCrypt(object):
         self.key="yyyyyyyyyyyy"    
         self.iv="xxx"  
 
-        if len(_iv) !=16 or (len(_key) not in [16,24,32]):
+        if len(self.iv) !=16 or (len(self.key) not in [16,24,32]):
             _key=aes_crypt.key
             _iv=aes_crypt.iv 
             #写配置文件

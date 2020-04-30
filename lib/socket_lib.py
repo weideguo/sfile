@@ -1,4 +1,5 @@
 #coding:utf8
+import os
 import sys
 
 def get_length(sock):
@@ -66,6 +67,30 @@ def readline(sock):
     return l
 
 
+def write(sock,filename,content_len,max_len=1024):
+    """
+    从sock获取指定长度写入文件
+    """
+    path=os.path.dirname(filename)
+    if not os.path.exists(path):
+        os.makedirs(path)
+    
+    with open(filename,"wb") as f:
+        while True:
+            if not content_len:
+                sock.recv(2)
+                break
+            else:
+                #取小值
+                get_len =  max_len if (max_len<content_len) else content_len
+                #获取大量数据出现长度不匹配？
+                content=sock.recv(get_len)
+                f.write(content)
+                f.flush()
+                content_len=content_len-len(content)
+
+    return os.path.getsize(filename)
+
 
 def get_socket(sock, sock_type=0):
     """
@@ -84,6 +109,7 @@ def get_socket(sock, sock_type=0):
         #使用ssl加密传输的socket
         return None
 
+from .aes_lib import aes_crypt
 
 class AesSocket(object):
     data=""
@@ -95,15 +121,20 @@ class AesSocket(object):
         """
         加密传输
         """
-        pass
-
-    def sendfile(self,file):
         """
-        加密传输文件
-        传入二进制打开的文件流
+        en_data=aes_crypt.aes_encrypt(data,aes_crypt.key,iv=aes_crypt.iv)
+        _len=len(en_data)
+        self.sock.sendall(("%d\r\n" % _len).encode('latin1'))
+        self.sock.sendall(en_data)
+        print(data,en_data)
+        self.sock.sendall(("\r\n").encode('latin1'))
         """
-        pass
+        en_data=aes_crypt.aes_encrypt(data,aes_crypt.key,iv=aes_crypt.iv)
+        print(str(self.sock)+"  "+str(data)+"  "+str(en_data))
+        self.sock.sendall(en_data)
 
+    def recvx(self,buffersize):
+        return self.sock.recv(buffersize)
 
     def recv(self,buffersize):
         """
@@ -114,13 +145,23 @@ class AesSocket(object):
             self.data = self.data[buffersize:]
             return _data
         _len=get_length(self.sock)
-        self.sock.recv(2)
+        print(_len)
+        #self.sock.recv(2)
         #获取一个加密单元并解密
-        #data=decrypt(self.sock,_len)
-        self.data=""
-        _date = self.data[:buffersize]
+        self.data=self.decrypt(_len)
+        _data = self.data[:buffersize]
         self.data = self.data[buffersize:]
         return _data
+
+    def decrypt(self,data_len):
+        """
+        获取指定长度并解密
+        """
+        en_data=self.sock.recv(data_len)
+        print(en_data)
+        self.sock.recv(2)
+        data=aes_crypt.aes_decrypt(en_data,aes_crypt.key,iv=aes_crypt.iv)
+        return data
 
 
     def close(self):

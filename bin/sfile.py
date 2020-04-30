@@ -36,12 +36,31 @@ if __name__ == "__main__":
     
     #文件的默认根目录
     default_path="/tmp/b"
+    
+
+
 
     config_path=os.path.join(base_dir,"conf")
+    
+    
+    
     #不设置则不需要认证
-    auth="123456"
-    #auth=""
-    ss=SfileServer(priority,bind,default_path,config_path,auth=auth)
+    #auth="123456"
+    auth=""
+
+
+
+
+    file_key=os.path.join(config_path,"key.conf")
+
+    from lib.aes_lib import aes_crypt
+    #初始化加密对象的key iv
+    #aes_crypt.set_config(file_key)
+    aes_crypt.key = b"l{E*Veue%!CN?1H$^0a}oJlE(SQHNZ$/"
+    aes_crypt.iv  = b"DQr|p0ZR%OUDO?{B"
+
+    socket_type=1
+    ss=SfileServer(priority,bind,default_path,config_path,socket_type,auth=auth)
     ss.start()
     
 
