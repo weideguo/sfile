@@ -50,17 +50,18 @@ class AesCrypt(object):
         result2 = base64.b64decode(en_data)
         decrypted = unpad(cipher.decrypt(result2))
         return  decrypted
+        
+        
+    @staticmethod
+    def is_valid(key,iv):
+        """
+        验证给的key iv是否有效
+        """
+        if len(iv) !=16 or (len(key) not in [16,24,32]):
+            return False
+        else:
+            return True
 
-    #如果配置密钥配置文件存在，从配置文件获取key和iv，否则自动生成并设置配置文件
-    def set_config(self,file_key):
-        #从配置文件读
-        self.key="yyyyyyyyyyyy"    
-        self.iv="xxx"  
-
-        if len(self.iv) !=16 or (len(self.key) not in [16,24,32]):
-            _key=aes_crypt.key
-            _iv=aes_crypt.iv 
-            #写配置文件
 
 #单例子模式
 aes_crypt=AesCrypt()

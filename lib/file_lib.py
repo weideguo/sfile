@@ -47,7 +47,7 @@ def rewrite(filename,line_list):
     with open(filename) as f:
         l=f.readline()
         while l:
-            if re.match("^#.*",l):
+            if re.match("^#.*",l.strip()):
                 comment_line.append(l)
             
             l=f.readline()
@@ -103,3 +103,69 @@ def lock_file(default_path,md5_str,filename,dirname="lock"):
     return os.path.join(default_path,"%s/%s__%s" % (dirname,md5_str,filename.replace("/","__")))
 
 
+class SimpleConfig(object):
+    """
+    读取文件获取键值对，同时支持写回文件
+    文件格式
+    key = value
+    """
+    def __init__(self,filename):
+        self.filename=filename
+        self.data = []
+        i=0
+        with open(filename) as f:
+            l=f.readline()
+            while l:
+                if re.match("^#.*",l.strip()) or not l.strip():
+                    self.data.append((i+1,l))
+                else:
+                    ls=l.strip().split("=")
+                    k=ls[0].strip()
+                    v="=".join(ls[1:]).strip()   #防止存在多个=
+                    if sys.version_info<(3,0):
+                        v=v.decode("utf8")
+
+                    self.data.append((i,k,v))
+                i=i+1
+                l=f.readline()
+            
+    
+    def read(self,key):
+        """
+        读取对应key的值
+        如果存在多个相同key，以最后一个为准
+        """
+        v=""
+        for l in self.data:
+            if len(l) == 3 and l[1] == key:
+                v=l[2]
+        
+        return v
+
+
+    def write(self,key,value):
+        """
+        写对应的key值
+        如果原来key不存在，在最后面添加一行
+        """
+        i=0
+        j=0
+        for l in self.data:
+            if len(l) == 3 and l[1] == key:
+                j=i+1
+                self.data[i]=(j,key,value)
+            i=i+1
+        
+        if not j:
+            self.data.append((i+1,key,value))
+
+        #写回文件
+        with open(self.filename,"w+") as f:
+            for l in self.data:
+                if len(l)==2:
+                    f.write(l[1])
+                elif len(l)==3:
+                    ln="%s = %s\n" % (l[1],l[2])
+                    if sys.version_info<(3,0):
+                        ln=ln.encode("utf8")
+                    f.write(ln)

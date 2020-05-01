@@ -10,6 +10,9 @@ import time
 base_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_dir)
 from core.sfile_server import SfileServer
+from lib.file_lib import SimpleConfig
+from lib.aes_lib import aes_crypt
+
 
 if __name__ == "__main__":
     """
@@ -37,31 +40,39 @@ if __name__ == "__main__":
     #文件的默认根目录
     default_path="/tmp/b"
     
-
-
-
+    
     config_path=os.path.join(base_dir,"conf")
-    
-    
+
+    file_key=os.path.join(config_path,"key.conf")
+    sc=SimpleConfig(file_key)
     
     #不设置则不需要认证
     #auth="123456"
-    auth=""
-
-
-
-
-    file_key=os.path.join(config_path,"key.conf")
-
-    from lib.aes_lib import aes_crypt
+    auth=sc.read("auth")
+    #auth=""
+    
     #初始化加密对象的key iv
-    #aes_crypt.set_config(file_key)
-    aes_crypt.key = b"l{E*Veue%!CN?1H$^0a}oJlE(SQHNZ$/"
-    aes_crypt.iv  = b"DQr|p0ZR%OUDO?{B"
 
+    #需要为byte格式
+    _key=sc.read("key").encode("utf8") 
+    _iv=sc.read("iv").encode("utf8") 
+    if aes_crypt.is_valid(_key,_iv):
+        #从配置文件读取的key有效
+        aes_crypt.key = _key
+        aes_crypt.iv = _iv
+    else:
+        #从配置文件读取的key无效，生成key并回写
+        _key=aes_crypt.key
+        _iv=aes_crypt.iv
+        sc.write("key",_key.decode("utf8"))
+        sc.write("iv",_iv.decode("utf8"))
+
+    print(auth,_key,_iv)
     socket_type=1
     ss=SfileServer(priority,bind,default_path,config_path,socket_type,auth=auth)
     ss.start()
+
+    
     
 
     
