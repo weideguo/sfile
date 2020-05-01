@@ -121,17 +121,10 @@ class AesSocket(object):
         """
         加密传输
         """
-        """
+        
         en_data=aes_crypt.aes_encrypt(data,aes_crypt.key,iv=aes_crypt.iv)
-        _len=len(en_data)
-        self.sock.sendall(("%d\r\n" % _len).encode('latin1'))
-        self.sock.sendall(en_data)
-        print(data,en_data)
-        self.sock.sendall(("\r\n").encode('latin1'))
-        """
-        en_data=aes_crypt.aes_encrypt(data,aes_crypt.key,iv=aes_crypt.iv)
-        print(str(self.sock)+"  "+str(data)+"  "+str(en_data))
-        self.sock.sendall(en_data)
+        self.sock.sendall(("%d\r\n" % len(en_data)).encode('latin1') + en_data + ("\r\n").encode('latin1'))
+
 
     def recvx(self,buffersize):
         return self.sock.recv(buffersize)
@@ -145,8 +138,7 @@ class AesSocket(object):
             self.data = self.data[buffersize:]
             return _data
         _len=get_length(self.sock)
-        print(_len)
-        #self.sock.recv(2)
+        #print(_len)
         #获取一个加密单元并解密
         self.data=self.decrypt(_len)
         _data = self.data[:buffersize]
@@ -158,7 +150,7 @@ class AesSocket(object):
         获取指定长度并解密
         """
         en_data=self.sock.recv(data_len)
-        print(en_data)
+        #print(en_data)
         self.sock.recv(2)
         data=aes_crypt.aes_decrypt(en_data,aes_crypt.key,iv=aes_crypt.iv)
         return data

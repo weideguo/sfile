@@ -256,7 +256,6 @@ class SfileServer(object):
         """
         发送主信息，md5信息，配置信息必须为utf8编码
         """
-        sock=socket_lib.get_socket(sock, self.socket_type)
         def _socket_send(tag, content_list):
             _content=""
             for s1,s2 in content_list:
