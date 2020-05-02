@@ -10,20 +10,23 @@ def get_content(filename):
     读取文件，过滤注释行，逐行组成list
     """
     content_line=[]
-    #获取字符串
-    with open(filename) as f:
-        l=f.readline()
-        while l:
-            
-            if sys.version_info<(3,0):
-                l=l.decode("utf8")   #转成unicode，python2需要，python3默认直接转成unicode
-            if re.match("^#.*",l) or not l.strip():
-                pass
-            else:
-                content_line.append(l.strip())
-                
+    try:
+        #获取字符串
+        with open(filename) as f:
             l=f.readline()
-            
+            while l:
+
+                if sys.version_info<(3,0):
+                    l=l.decode("utf8")       #转成unicode，python2需要，python3默认直接转成unicode
+                if re.match("^#.*",l) or not l.strip():
+                    pass
+                else:
+                    content_line.append(l.strip())
+
+                l=f.readline()
+    except:
+        pass
+
     return content_line
 
 def append_newline(filename,line):
@@ -44,13 +47,17 @@ def rewrite(filename,line_list):
     去除非注释行，向文件尾部添加
     """
     comment_line=[]
-    with open(filename) as f:
-        l=f.readline()
-        while l:
-            if re.match("^#.*",l.strip()):
-                comment_line.append(l)
-            
+    try:
+        with open(filename) as f:
             l=f.readline()
+            while l:
+                if re.match("^#.*",l.strip()):
+                    comment_line.append(l)
+
+                l=f.readline()
+    except IOError:
+        #文件不存在，则注释行为空
+        pass
     
     with open(filename,"w+") as f:
         for l in comment_line:

@@ -49,15 +49,17 @@ def get_info(sock):
     return info_str.decode("utf8").split("\n")
 
 
-
-
-
-def readline(sock):
+def readline(sock,max_len=1024):
     """
     获取一行数据，通过"\n"划分
+    接收到的请求默认一行不应超过1024字节
     """
     l=b""
+    i=0
     while True:
+        if i>=max_len:
+            raise Exception("illegal line length should not greate than %d" % max_len)
+
         c=sock.recv(1)
         if (not c) or c.decode("latin1") == "\n" :
             break

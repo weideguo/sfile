@@ -98,6 +98,9 @@ class SfileServer(object):
             self.md5_list.add((md5_str,filename))
             self.md5_file.add((md5_str,filename))
 
+        if not len(self.conn_file):
+            #没有其他主的信息
+            raise Exception("at least one master info must set in \"%s\"" % self.file_conn)
 
         file_list=[x[1] for x in self.md5_list]
         if len(file_list) != len(set(file_list)):
@@ -105,11 +108,26 @@ class SfileServer(object):
             raise Exception("filename duplicated")
     
 
-    def get_md5(self):
+    def init_md5(self):
         """
         计算监听目录下所有文件的md5，并更新到md5配置文件。在实例化后可选是否调用该函数
         """
-        pass
+        #清空已有的md5信息，以新读取为准
+        self.md5_file = set()
+        root_path=self.default_path
+        for i in os.walk(root_path):
+            if i[2]:
+                for j in i[2]:
+                    filename=os.path.join(i[0],j)
+                    md5_str=utils.my_md5(filename)
+                    _filename = filename.split(root_path)[-1][1:]
+                    if sys.version_info<(3,0):
+                        _filename=_filename.decode("utf8")   
+                    self.md5_list.add((md5_str,_filename))
+        
+        #with FileLock(self.lock_file):
+        _line_list=["%s  %s" % (md5_str,filename) for md5_str,filename in self.md5_list]
+        file_lib.rewrite(self.file_md5, _line_list)
 
 
     def do_request(self,sock,addr,id):
@@ -233,7 +251,7 @@ class SfileServer(object):
         s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)    #端口复用，否则关闭时端口处于time_wait而不能立即使用
 
         s.bind((self.host,self.port))
-        logger.info("listening at: %s" % self.bind)
+        logger.info("start tcp success, listening at: %s" % self.bind)
         #the number of unaccepted connections that the system will allow before refusing new connections
         s.listen(0)   
         threads=[]
@@ -279,6 +297,7 @@ class SfileServer(object):
             _socket_send(self.msg_types[3],_conn_list)
         except BrokenPipeError:
             self.listen_list.pop(id)
+
 
     def __send(self):
         """

@@ -67,9 +67,12 @@ if __name__ == "__main__":
         sc.write("key",_key.decode("utf8"))
         sc.write("iv",_iv.decode("utf8"))
 
-    print(auth,_key,_iv)
+    print("listening at: \033[1;32m %s \033[0m" % bind)
+    print("auth: \033[1;32m %s \033[0m ,key: \033[1;32m %s \033[0m ,iv: \033[1;32m %s \033[0m" % (auth,_key,_iv))
     socket_type=1
     ss=SfileServer(priority,bind,default_path,config_path,socket_type,auth=auth)
+    
+    ss.init_md5()
     ss.start()
 
     
