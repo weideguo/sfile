@@ -600,8 +600,8 @@ class SfileServer(object):
         if self.priority > 0:
             t=Thread(target=self.__listen)
             t_list.append(t)
-            #t=Thread(target=self.__send)
-            #t_list.append(t)
+            t=Thread(target=self.__send)
+            t_list.append(t)
             t=Thread(target=self.__file_listen)
             t_list.append(t)
 
