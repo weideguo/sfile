@@ -27,7 +27,7 @@ from lib.file_listen import FileEventHandler
 
 
 class SfileServer(object):
-    def __init__(self,priority,bind,default_path,config_path,socket_type,file_md5="md5.txt",file_conn="sfile.conf",auth=""):
+    def __init__(self,priority,bind,default_path,config_path,crypt=None,file_md5="md5.txt",file_conn="sfile.conf",auth=""):
         #优先级为负数则说明是slave
         self.priority     = priority    
         self.bind         = bind
@@ -74,8 +74,8 @@ class SfileServer(object):
         self.strict_check = True
         #socket作为服务时使用多个线程发数据，需要确保线程间不相互影响
         self.sock_send_lock = Lock()
-        #使用的socket类型 0 未加密；1 aes加密；2 ssl加密
-        self.socket_type=socket_type
+        #使用的socket加密对象
+        self.crypt=crypt
         self.init()
 
 
@@ -134,7 +134,7 @@ class SfileServer(object):
         """
         响应请求
         """
-        sock=socket_lib.get_socket(sock, self.socket_type)
+        sock=socket_lib.get_socket(sock, self.crypt)
         def send_priority():
             #其发送自己的优先级
             pror="%s\r\n%d\r\n%d\r\n" % (self.msg_types[4],len(str(self.priority)),self.priority)
@@ -316,7 +316,7 @@ class SfileServer(object):
         """
         处理获取的信息
         """
-        sock=socket_lib.get_socket(sock, self.socket_type)
+        sock=socket_lib.get_socket(sock, self.crypt)
         if self.auth:
             #需要认证时连接创建后发送认证请求
             send_data="%s %s\n" % (self.cmd_type[3],self.auth)

@@ -2,8 +2,6 @@
 import os
 import sys
 
-from .aes_lib import aes_crypt
-
 
 def get_length(sock):
     """
@@ -97,31 +95,16 @@ def write(sock,filename,content_len,max_len=1024):
     return os.path.getsize(filename)
 
 
-def get_socket(sock, sock_type=0):
+def get_socket(sock, crypt=None):
     """
     由传入的套接字获取封装的套接字
     """
-    if sock_type==0:
+    if crypt:
+        #使用aes或rsa加密传输的socket
+        return CryptSocket(sock,crypt.encrypt,crypt.decrypt)
+    else:
         #最基本socket
         return sock
-
-    elif sock_type==1:
-        #使用aes加密传输的socket
-        def aes_encrypt(data):
-            return aes_crypt.aes_encrypt(data,aes_crypt.key,iv=aes_crypt.iv)
-
-        def aes_decrypt(en_data):
-            return aes_crypt.aes_decrypt(en_data,aes_crypt.key,iv=aes_crypt.iv)
-        
-        return CryptSocket(sock,aes_encrypt,aes_decrypt)
-    
-    elif sock_type==2:
-        #使用ssl加密传输的socket
-        return None
-    
-    else:
-        return sock
-
 
 
 class CryptSocket(object):
@@ -142,10 +125,8 @@ class CryptSocket(object):
         """
         加密传输
         """
-        #en_data=aes_crypt.aes_encrypt(data,aes_crypt.key,iv=aes_crypt.iv)
         en_data=self.encrypt(data)
         self.sock.sendall(("%d\r\n" % len(en_data)).encode('latin1') + en_data + ("\r\n").encode('latin1'))
-
 
     def recvx(self,buffersize):
         return self.sock.recv(buffersize)
@@ -173,7 +154,6 @@ class CryptSocket(object):
         en_data=self.sock.recv(data_len)
         #print(en_data)
         self.sock.recv(2)
-        #data=aes_crypt.aes_decrypt(en_data,aes_crypt.key,iv=aes_crypt.iv)
         data=self.decrypt(en_data)
         return data
 

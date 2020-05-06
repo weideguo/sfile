@@ -11,7 +11,6 @@ base_dir=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(base_dir)
 from core.sfile_server import SfileServer
 from lib.file_lib import SimpleConfig
-from lib.aes_lib import aes_crypt
 
 
 if __name__ == "__main__":
@@ -51,29 +50,67 @@ if __name__ == "__main__":
     auth=sc.read("auth")
     #auth=""
     
-    #初始化加密对象的key iv
-
-    #需要为byte格式
-    _key=sc.read("key").encode("utf8") 
-    _iv=sc.read("iv").encode("utf8") 
-    if aes_crypt.is_valid(_key,_iv):
-        #从配置文件读取的key有效
-        aes_crypt.key = _key
-        aes_crypt.iv = _iv
-    else:
-        #从配置文件读取的key无效，生成key并回写
-        _key=aes_crypt.key
-        _iv=aes_crypt.iv
-        sc.write("key",_key.decode("utf8"))
-        sc.write("iv",_iv.decode("utf8"))
-
     print("listening at: \033[1;32m %s \033[0m" % bind)
-    print("auth: \033[1;32m %s \033[0m ,key: \033[1;32m %s \033[0m ,iv: \033[1;32m %s \033[0m" % (auth,_key,_iv))
-    socket_type=1
-    ss=SfileServer(priority,bind,default_path,config_path,socket_type,auth=auth)
+    print("auth: \033[1;32m %s \033[0m" % auth)
+
+    socket_type=2
+
+    if socket_type==1:
+        #使用aes加密socket
+        from lib.aes_lib import AesCrypt
+        aes_crypt=AesCrypt()
+        #初始化加密对象的key iv
+        #需要为byte格式
+        _key=sc.read("key").encode("utf8") 
+        _iv=sc.read("iv").encode("utf8") 
+        if aes_crypt.is_valid(_key,_iv):
+            #从配置文件读取的key有效
+            aes_crypt.key = _key
+            aes_crypt.iv = _iv
+        else:
+            #从配置文件读取的key无效，生成key并回写
+            _key=aes_crypt.key
+            _iv=aes_crypt.iv
+            sc.write("key",_key.decode("utf8"))
+            sc.write("iv",_iv.decode("utf8"))
+        crypt=aes_crypt
+        print("key: \033[1;32m %s \033[0m ,iv: \033[1;32m %s \033[0m" % (_key,_iv))
     
-    ss.init_md5()
-    ss.start()
+    elif socket_type==2:
+        #使用rsa加密socket
+        from lib.rsa_lib import RsaCrypt
+        rsa_crypt=RsaCrypt()
+
+        def set_key_file(key_name,key_default,file_content):
+            _key=sc.read(key_name)
+            if not _key:
+                _key=key_default
+                sc.write(key_name,key_default)
+            try:
+                _key=os.path.join(config_path,_key)
+                _path=os.path.dirname(_key)
+                if not os.path.exists(_path):
+                    os.makedirs(_path)
+                
+                rsa_crypt.private_key = open(_key,"rb").read()
+            except:
+                with open(_key,"wb") as f:
+                    f.write(file_content)
+            
+            return _key
+
+        _private_key=set_key_file("private_key","rsa/key.pem",rsa_crypt.private_key)
+        _public_key=set_key_file("public_key","rsa/key.pub",rsa_crypt.public_key)
+
+        crypt=rsa_crypt
+        print("private_key: \033[1;32m %s \033[0m ,public_key: \033[1;32m %s \033[0m" % (_private_key,_public_key))
+    else:
+        crypt=None
+    
+    #ss=SfileServer(priority,bind,default_path,config_path,crypt,auth=auth)
+    
+    #ss.init_md5()
+    #ss.start()
 
     
     
