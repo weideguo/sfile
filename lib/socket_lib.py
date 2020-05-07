@@ -151,10 +151,21 @@ class CryptSocket(object):
         """
         获取指定长度并解密
         """
-        en_data=self.sock.recv(data_len)
+        en_data=b""
+        while data_len:
+            #有可能出现获取的长度不符合
+            en_data=en_data+self.sock.recv(data_len)
+            data_len=data_len-len(en_data)
+
         #print(en_data)
         self.sock.recv(2)
-        data=self.decrypt(en_data)
+        try:
+            data=self.decrypt(en_data)
+        except:
+            from traceback import format_exc
+            print(format_exc())
+            print(en_data)
+
         return data
 
 

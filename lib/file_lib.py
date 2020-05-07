@@ -86,20 +86,24 @@ def copy(srcfile,dstfile):
         shutil.copyfile(srcfile,dstfile) 
 
 
-def move(srcfile,to_path="/tmp",rename="default"):
+def move(srcfile,dstfile=None,to_path="/tmp",rename="default"):
     """
     移动文件
     """
+    if dstfile:
+        to_path=os.path.dirname(dstfile)
+
+    else:
+        dstfile=os.path.join(to_path,os.path.basename(srcfile))
+
+        if rename=="default":
+            rename=str(time.time())
+        if rename:
+            dstfile=dstfile+"."+rename
+
     if not os.path.exists(to_path):
         os.makedirs(to_path)
-    
-    dstfile=os.path.join(to_path,os.path.basename(srcfile))
-
-    if rename=="default":
-        rename=str(time.time())
-    if rename:
-        dstfile=dstfile+"."+rename
-        
+            
     shutil.move(srcfile,dstfile) 
 
 
@@ -117,6 +121,7 @@ class SimpleConfig(object):
     key = value
     """
     def __init__(self,filename):
+        self.path=os.path.dirname(filename)
         self.filename=filename
         self.data = []
         i=0

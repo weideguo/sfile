@@ -23,7 +23,7 @@ from lib.logger import logger,logger_err
 from lib import socket_lib
 from lib import file_lib
 from lib.safe_type import FileLock
-from lib.file_listen import FileEventHandler
+from lib.file_listen import FileEventHandler,ignore_postfix
 
 
 class SfileServer(object):
@@ -76,6 +76,8 @@ class SfileServer(object):
         self.sock_send_lock = Lock()
         #使用的socket加密对象
         self.crypt=crypt
+        #忽略文件的后缀，启动时不计算其md5
+        self.ignore_postfix=ignore_postfix
         self.init()
 
 
@@ -119,6 +121,8 @@ class SfileServer(object):
             if i[2]:
                 for j in i[2]:
                     filename=os.path.join(i[0],j)
+                    if os.path.splitext(filename)[-1] in self.ignore_postfix:
+                        continue
                     md5_str=utils.my_md5(filename)
                     _filename = filename.split(root_path)[-1][1:]
                     if sys.version_info<(3,0):
@@ -344,21 +348,26 @@ class SfileServer(object):
                 filename,md5,content_len = socket_lib.get_file_info(sock)
                 
                 filename=filename.decode("utf8")
+                #先保存到临时文件，这样可以避免更新md5配置文件
+                #_filename_tmp=os.path.join(self.default_path,filename+".swp")
+                _filename_tmp=os.path.join(self.default_path,filename+self.ignore_postfix[0])
                 _filename=os.path.join(self.default_path,filename)
                 md5=md5.decode("utf8")
                 logger.debug("%s get file info: %s %s %d" % (str(addr),filename,md5,content_len))
                 try:
-                    _content_len = socket_lib.write(sock,_filename,content_len)
+                    _content_len = socket_lib.write(sock,_filename_tmp,content_len)
                     
                     host,port = addr
                     if content_len != _content_len:
                         raise Exception("%s:%d %s %d %d download success but file length different" % (host,port,filename,content_len,_content_len))
                     
                     if self.strict_check:
-                        _md5=utils.my_md5(file=_filename)
+                        _md5=utils.my_md5(file=_filename_tmp)
                         if md5 != _md5:
                             raise Exception("%s:%d %s download success but md5 different" % (host,port,filename))
-
+                    
+                    #下载成功，重命名文件
+                    file_lib.move(_filename_tmp,_filename)
                     self.md5_list.add((md5,filename)) 
                     tmp_lock=file_lib.lock_file(self.lock_path,md5,filename)
                     FileLock().remove_lock(tmp_lock)

@@ -12,6 +12,8 @@ from .safe_type import BlockFileLock
 from .wrapper import error_capture
 
 
+ignore_postfix=[".swp", ".swx",".swpx"]
+
 class FileEventHandler(FileSystemEventHandler):
     """
     监听文件增/删/改/移
@@ -22,9 +24,7 @@ class FileEventHandler(FileSystemEventHandler):
         
         self.file_md5=file_md5
         self.listen_path=listen_path
-
-        self.ignore_postfix=[".swp", ".swx",".swpx"]
-        
+                
         file_md5_path=os.path.dirname(self.file_md5)
         file_md5_name="."+os.path.basename(self.file_md5)+".swp"
         #vim的锁文件，确保vim写的安全
@@ -66,7 +66,7 @@ class FileEventHandler(FileSystemEventHandler):
 
     def is_ignore(self, path):
         postfix=os.path.splitext(path)[-1]
-        return (postfix in self.ignore_postfix)
+        return (postfix in ignore_postfix)
 
     
     def add_md5(self, md5, path):
