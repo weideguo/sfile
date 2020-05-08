@@ -19,15 +19,15 @@ else:
     BrokenPipeError=socket.error
 
 from lib import utils
-from lib.logger import logger,logger_err
 from lib import socket_lib
 from lib import file_lib
+from lib.logger import logger,logger_err
 from lib.safe_type import FileLock
 from lib.file_listen import FileEventHandler,ignore_postfix
 
 
 class SfileServer(object):
-    def __init__(self,priority,bind,default_path,config_path,crypt=None,file_md5="md5.txt",file_conn="sfile.conf",auth=""):
+    def __init__(self,priority,bind,default_path,config_path,file_md5="md5.txt",file_conn="sfile.conf",crypt=None,auth=""):
         #优先级为负数则说明是slave
         self.priority     = priority    
         self.bind         = bind
@@ -42,7 +42,7 @@ class SfileServer(object):
         self.auth=auth
 
         #响应其他连接的操作类型
-        self.cmd_type=["quit","exit","getfile","auth"]
+        self.cmd_type=["quit","exit","getfile","auth","conn"]
 
         #连接其他服务获得的消息类型，恒为4字节
         self.msg_types=["erro","file","fmd5","info","pror","succ"]
@@ -57,6 +57,8 @@ class SfileServer(object):
         self.conn_queue = Queue.Queue()
         #配置文件中的连接信息
         self.conn_file = set()
+        #原始的连接信息，在初始化之后不再被更改
+        self._conn_file = set()
 
         #md5的信息列表
         self.md5_list = set()
@@ -65,12 +67,12 @@ class SfileServer(object):
 
         file_md5_path=os.path.dirname(self.file_md5)
         file_md5_name="."+os.path.basename(self.file_md5)+".swp"
-        #vim的锁文件，确保vim写的安全
+        #md5配置文件的vim锁，确保vim写的安全
         self.lock_file=os.path.join(file_md5_path,file_md5_name)
         #锁目录，用于存储标记文件正在处理（下载/移动/复制）的锁
         self.lock_path= "/tmp"
 
-        #是否严格检查，如下载时检查md5
+        #是否严格检查，下载文件时检查md5
         self.strict_check = True
         #socket作为服务时使用多个线程发数据，需要确保线程间不相互影响
         self.sock_send_lock = Lock()
@@ -78,7 +80,8 @@ class SfileServer(object):
         self.crypt=crypt
         #忽略文件的后缀，启动时不计算其md5
         self.ignore_postfix=ignore_postfix
-        self.init()
+
+        #self.init()
 
 
     def init(self):
@@ -92,6 +95,7 @@ class SfileServer(object):
             if (host,port) != (self.host,self.port):
                 self.conn_queue.put((host,port))
                 self.conn_file.add((host,port))
+                self._conn_file.add((host,port))
         
         for l in file_lib.get_content(self.file_md5):
             l=l.strip()
@@ -223,6 +227,16 @@ class SfileServer(object):
                                 sock.sendall(send_data.encode("latin1"))
                             logger_err.error(format_exc())
 
+                    elif (data.split(" ")[0]==self.cmd_type[4]):
+                        #其他主连接时说自己监听的 ip:端口
+                        _bind=data.split(self.cmd_type[4])[-1].strip()
+                        _ip,_port = _bind.split(":") 
+                        _ip,_port = _ip.strip(), int(_port.strip())
+                        if (_ip,_port) not in self.conn_list:
+                            self.conn_queue.put((_ip,_port))
+                            logger.debug("other master %s:%d conn" % (_ip,_port))
+                        else:
+                            logger.debug("other master %s:%d conn skip" % (_ip,_port))
                     else:
                         """
                         其他命令不支持
@@ -260,7 +274,8 @@ class SfileServer(object):
         s.listen(0)   
         threads=[]
         while True:   
-            id = self.priority
+            #id = self.priority
+            id = uuid.uuid1().hex
             sock,addr=s.accept() 
 
             #然后后台处理，响应请求        
@@ -308,17 +323,23 @@ class SfileServer(object):
         主动发送，只有master启用
         """
         while True:
-            for id in self.listen_list.keys():
-                sock,addr = self.listen_list[id]
-                t=Thread(target=self.do_send,args=(sock,addr,id))
-                t.start()
-                logger.debug("send to client: " +str(sock)+" "+str(addr) )
-            time.sleep(10)  
+            #logger.debug("clients: " + str(self.listen_list))
+            try:
+                for id in self.listen_list.keys():
+                    sock,addr = self.listen_list[id]
+                    t=Thread(target=self.do_send,args=(sock,addr,id))
+                    t.start()
+                    logger.debug("send to client: " +str(sock)+" "+str(addr) )
+            except:
+                #可能出现错误（如dict在遍历时发生更改），则跳过一次
+                pass
+            finally:
+                time.sleep(10)  
 
 
     def do_get(self,sock,addr):
         """
-        处理获取的信息
+        连接其他主，处理获取的信息
         """
         sock=socket_lib.get_socket(sock, self.crypt)
         if self.auth:
@@ -327,172 +348,192 @@ class SfileServer(object):
             sock.sendall(send_data.encode("utf8"))
             logger.debug(str(addr)+" "+send_data)
 
+        if self.priority > 0:
+            #自己为主，在连接后告诉对方自己的 ip:端口
+            #需要认证时连接创建后发送认证请求
+            send_data="%s %s\n" % (self.cmd_type[4],self.bind)
+            sock.sendall(send_data.encode("utf8"))
+            logger.debug(str(addr)+" "+send_data)
+
         #连接的服务的优先级
         priority=0
-        while True:
-            msg_type=sock.recv(4).decode("utf8")
-            sock.recv(2)
-            if msg_type==self.msg_types[0]:
-                """
-                错误返回
-                """
-                _len=socket_lib.get_length(sock)
-                error_info=sock.recv(_len)
+        try:
+            while True:
+                msg_type=sock.recv(4).decode("utf8")
                 sock.recv(2)
-                logger_err.error(str(addr)+" "+error_info.decode("utf8"))
+                if msg_type==self.msg_types[0]:
+                    """
+                    错误返回
+                    """
+                    _len=socket_lib.get_length(sock)
+                    error_info=sock.recv(_len)
+                    sock.recv(2)
+                    logger_err.error(str(addr)+" "+error_info.decode("utf8"))
 
-            elif msg_type==self.msg_types[1]:
-                """
-                请求文件的返回
-                """
-                filename,md5,content_len = socket_lib.get_file_info(sock)
-                
-                filename=filename.decode("utf8")
-                #先保存到临时文件，这样可以避免更新md5配置文件
-                #_filename_tmp=os.path.join(self.default_path,filename+".swp")
-                _filename_tmp=os.path.join(self.default_path,filename+self.ignore_postfix[0])
-                _filename=os.path.join(self.default_path,filename)
-                md5=md5.decode("utf8")
-                logger.debug("%s get file info: %s %s %d" % (str(addr),filename,md5,content_len))
-                try:
-                    _content_len = socket_lib.write(sock,_filename_tmp,content_len)
-                    
-                    host,port = addr
-                    if content_len != _content_len:
-                        raise Exception("%s:%d %s %d %d download success but file length different" % (host,port,filename,content_len,_content_len))
-                    
-                    if self.strict_check:
-                        _md5=utils.my_md5(file=_filename_tmp)
-                        if md5 != _md5:
-                            raise Exception("%s:%d %s download success but md5 different" % (host,port,filename))
-                    
-                    #下载成功，重命名文件
-                    file_lib.move(_filename_tmp,_filename)
-                    self.md5_list.add((md5,filename)) 
-                    tmp_lock=file_lib.lock_file(self.lock_path,md5,filename)
-                    FileLock().remove_lock(tmp_lock)
-                    logger.debug("%s get file done: %s %s %d" % (str(addr),filename,md5,content_len))
-                except:
-                    if addr in self.md5_list:
-                        self.md5_list.remove(addr)
-                    logger_err.error(format_exc())
+                elif msg_type==self.msg_types[1]:
+                    """
+                    请求文件的返回
+                    """
+                    filename,md5,content_len = socket_lib.get_file_info(sock)
 
-            elif msg_type==self.msg_types[2]:
-                """
-                获取md5信息
-                """
-                for l in socket_lib.get_info(sock):
-                    md5_str,filename = l.split(" ")
+                    filename=filename.decode("utf8")
+                    #先保存到临时文件，这样可以避免更新md5配置文件
+                    #_filename_tmp=os.path.join(self.default_path,filename+".swp")
+                    _filename_tmp=os.path.join(self.default_path,filename+self.ignore_postfix[0])
+                    _filename=os.path.join(self.default_path,filename)
+                    md5=md5.decode("utf8")
+                    logger.debug("%s get file info: %s %s %d" % (str(addr),filename,md5,content_len))
+                    try:
+                        _content_len = socket_lib.write(sock,_filename_tmp,content_len)
 
-                    if (md5_str,filename) not in self.md5_list:
-                        #创建一个锁文件标记已经被处理，其他线程不再处理
-                        tmp_lock=file_lib.lock_file(self.lock_path,md5_str,filename)
-                        is_opt=True
-                        try:
-                            FileLock().get_lock(tmp_lock)
-                        except:
-                            logger.debug(format_exc())
-                            is_opt=False
+                        host,port = addr
+                        if content_len != _content_len:
+                            raise Exception("%s:%d %s %d %d download success but file length different" % (host,port,filename,content_len,_content_len))
+                        
+                        if self.strict_check:
+                            _md5=utils.my_md5(file=_filename_tmp)
+                            if md5 != _md5:
+                                raise Exception("%s:%d %s download success but md5 different" % (host,port,filename))
+                            
+                        #下载成功，重命名文件
+                        file_lib.move(_filename_tmp,_filename)
+                        self.md5_list.add((md5,filename)) 
+                        tmp_lock=file_lib.lock_file(self.lock_path,filename)
+                        FileLock().remove_lock(tmp_lock)
+                        logger.debug("%s get file done: %s %s %d" % (str(addr),filename,md5,content_len))
+                    except:
+                        if addr in self.md5_list:
+                            self.md5_list.remove(addr)
+                        logger_err.error(format_exc())
 
-                        if is_opt:
-                            _filename=os.path.join(self.default_path,filename)
-                            _md5_list=copy.deepcopy(self.md5_list)
-                            #self.md5_list.add((md5_str,filename))   
+                elif msg_type==self.msg_types[2]:
+                    """
+                    获取md5信息
+                    """
+                    for l in socket_lib.get_info(sock):
+                        md5_str,filename = l.split(" ")
 
-                            if filename in [x[1] for x in _md5_list]:
-                                #文件存在，但md5不同
-                                if (priority > self.priority) and (self.priority > 0):
-                                    #自己的优先级更高，不处理，其他线程继续处理
-                                    FileLock().remove_lock(tmp_lock)
-                                    logger.debug("skip %s %s cause priority %d > %d" % (md5_str,filename,priority,self.priority)) 
-                                else:
-                                    #自己的优先级更低，则处理
-                                    for m,f in _md5_list:
-                                        if f==filename:
-                                            self.md5_list.remove((m,f)) 
+                        if (md5_str,filename) not in self.md5_list:
+                            #创建一个锁文件标记已经被处理，其他线程不再处理
+                            tmp_lock=file_lib.lock_file(self.lock_path,filename)
+                            is_opt=True
+                            try:
+                                FileLock().get_lock(tmp_lock)
+                            except:
+                                #logger.debug(format_exc())
+                                is_opt=False
 
-                                    logger.debug("mv %s %s" % (filename ,"/tmp"))  
-                                    try:
-                                        #移动本地文件remove
-                                        file_lib.move(_filename)
-                                        #不必下载文件，标记下次下载
+                            if is_opt:
+                                _filename=os.path.join(self.default_path,filename)
+                                _md5_list=copy.deepcopy(self.md5_list)
+                                #self.md5_list.add((md5_str,filename))   
+
+                                if filename in [x[1] for x in _md5_list]:
+                                    #文件存在，但md5不同
+                                    if (priority > self.priority) and (self.priority > 0):
+                                        #自己的优先级更高，不处理，其他线程继续处理
                                         FileLock().remove_lock(tmp_lock)
-                                    except:
-                                        logger_err.error(format_exc())
+                                        logger.debug("skip %s %s cause priority %d > %d" % (md5_str,filename,priority,self.priority)) 
+                                    else:
+                                        #自己的优先级更低，则处理
+                                        for m,f in _md5_list:
+                                            if f==filename:
+                                                self.md5_list.remove((m,f)) 
 
-                            elif md5_str in [x[0] for x in _md5_list]:   
-                                #md5存在，应该复制文件
-                                for m,f in _md5_list:
-                                    if m==md5_str:
-                                        logger.debug("copy %s %s" % (f,filename) )
-                                        f=os.path.join(self.default_path,f)
+                                        logger.debug("mv %s %s" % (filename ,"/tmp"))  
                                         try:
-                                            file_lib.copy(f,_filename)
-                                            self.md5_list.add((md5_str,filename)) 
+                                            #移动本地文件remove
+                                            file_lib.move(_filename)
+                                            #不必下载文件，标记下次下载
                                             FileLock().remove_lock(tmp_lock)
                                         except:
                                             logger_err.error(format_exc())
 
-                                        break
-                                    
-                            else:
-                                #发起下载
-                                download="%s %s\n" % (self.cmd_type[2],filename)
-                                sock.sendall(download.encode("utf8"))
-                                logger.debug(str(addr)+" "+download)
-                        else:
-                            logger.debug("\"%s\" lock exist, ignore operation" % tmp_lock)
-                        
-                sock.recv(2)
-                logger.debug(self.md5_list)
+                                elif md5_str in [x[0] for x in _md5_list]:   
+                                    #md5存在，应该复制文件
+                                    for m,f in _md5_list:
+                                        if m==md5_str:
+                                            logger.debug("copy %s %s" % (f,filename) )
+                                            f=os.path.join(self.default_path,f)
+                                            try:
+                                                file_lib.copy(f,_filename)
+                                                self.md5_list.add((md5_str,filename)) 
+                                                FileLock().remove_lock(tmp_lock)
+                                            except:
+                                                logger_err.error(format_exc())
 
-            elif msg_type==self.msg_types[3]:
-                """
-                获取主的信息
-                """
-                for l in socket_lib.get_info(sock):
-                    host,port = l.split(" ")
-                    port = int(port)
-                    if (host,port) != (self.host,self.port):
-                        self.conn_queue.put((host,port))
-                sock.recv(2)
-            
-            elif msg_type==self.msg_types[4]:
-                """
-                获取优先级
-                """
-                _len=socket_lib.get_length(sock)
-                priority=int(sock.recv(_len))
-                sock.recv(2)
-            elif msg_type==self.msg_types[5]:
-                """
-                获取一些成功的提示
-                """
-                _len=socket_lib.get_length(sock)
-                info=sock.recv(_len)
-                sock.recv(2)
-                logger.debug(str(addr)+" "+info.decode("utf8"))
-            else:
-                """
-                未知的请求
-                """
-                unknown=sock.recv(1024)
-                #获取值为空，说明连接已经断开
-                if not unknown:
-                    logger.debug("%s:%d connect broken" % addr)
-                    if addr in self.conn_list:
-                        self.conn_list.remove(addr)
-                    #连接则重新连接，防止出现与其他服务连接都断开后被隔离
-                    self.conn_queue.put(addr)
-                    break
+                                            break
+                                        
+                                else:
+                                    #发起下载
+                                    download="%s %s\n" % (self.cmd_type[2],filename)
+                                    sock.sendall(download.encode("utf8"))
+                                    logger.debug(str(addr)+" "+download)
+                            else:
+                                logger.debug("\"%s\" lock exist, ignore operation" % tmp_lock)
+
+                    sock.recv(2)
+                    logger.debug(self.md5_list)
+
+                elif msg_type==self.msg_types[3]:
+                    """
+                    获取主的信息
+                    """
+                    for l in socket_lib.get_info(sock):
+                        host,port = l.split(" ")
+                        port = int(port)
+                        if (host,port) != (self.host,self.port):
+                            self.conn_queue.put((host,port))
+                    sock.recv(2)
+
+                elif msg_type==self.msg_types[4]:
+                    """
+                    获取优先级
+                    """
+                    _len=socket_lib.get_length(sock)
+                    priority=int(sock.recv(_len))
+                    sock.recv(2)
+                elif msg_type==self.msg_types[5]:
+                    """
+                    获取一些成功的提示
+                    """
+                    _len=socket_lib.get_length(sock)
+                    info=sock.recv(_len)
+                    sock.recv(2)
+                    logger.debug(str(addr)+" "+info.decode("utf8"))
                 else:
-                    logger.debug("%s:%d get unknown info, read 1024 byte:" % addr)
-                    logger.debug(unknown)
+                    """
+                    未知的请求
+                    """
+                    unknown=sock.recv(1024)
+                    #获取值为空，说明连接已经断开
+                    if not unknown:
+                        logger.debug("%s:%d connect broken" % addr)
+                        if addr in self.conn_list:
+                            self.conn_list.remove(addr)
+                        #如果为初始连接，则重连，防止出现与其他服务连接都断开后被隔离
+                        if addr in self._conn_file:
+                            logger.debug("%s:%d reconnect" % addr)
+                            self.conn_queue.put(addr)
+                        break
+                    else:
+                        logger.debug("%s:%d get unknown info, read 1024 byte:" % addr)
+                        logger.debug(unknown)
+        except:
+            #连接其他主出现错误
+            logger.debug("%s:%d connect broken" % addr)
+            if addr in self.conn_list:
+                self.conn_list.remove(addr)
+            #如果为初始连接，则重连
+            if addr in self._conn_file:
+                logger.debug("%s:%d reconnect" % addr)
+                self.conn_queue.put(addr)
     
     
     def __conn(self):
         """
         连接其他的服务获取消息（主信息，md5信息）更新于本地/下拉文件
+        如果出现与其他主连接都失败，则需要重启
         """
         #等待连接的队列
         _tmp_conn_list=set()
@@ -598,6 +639,8 @@ class SfileServer(object):
 
 
     def start(self):
+        self.init()
+
         t_list=[]
         #从只有两个操作
         t=Thread(target=self.__conn)

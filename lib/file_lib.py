@@ -107,11 +107,11 @@ def move(srcfile,dstfile=None,to_path="/tmp",rename="default"):
     shutil.move(srcfile,dstfile) 
 
 
-def lock_file(default_path,md5_str,filename,dirname="lock"):
+def lock_file(default_path,filename,dirname="lock"):
     """
     组成一个格式化的锁文件路径
     """
-    return os.path.join(default_path,"%s/%s__%s" % (dirname,md5_str,filename.replace("/","__")))
+    return os.path.join(default_path,"%s/%s" % (dirname,filename.replace("/","__")))
 
 
 class SimpleConfig(object):
