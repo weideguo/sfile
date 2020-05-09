@@ -104,9 +104,12 @@ class SfileServer(object):
             self.md5_list.add((md5_str,filename))
             self.md5_file.add((md5_str,filename))
 
+        """
+        #允许没有其他主的信息，比如只有一个主的架构
         if not len(self.conn_file):
             #没有其他主的信息
             raise Exception("at least one master info must set in \"%s\"" % self.file_conn)
+        """
 
         file_list=[x[1] for x in self.md5_list]
         if len(file_list) != len(set(file_list)):

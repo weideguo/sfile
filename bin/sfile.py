@@ -41,7 +41,7 @@ def arg_parse():
     命令行参数解析
     """
     usage = "Usage: %prog [options]"
-    usage += u"\n\n请按照以下提示启动"
+    usage += "\n\nstart with following options:"
 
 
     parser = optparse.OptionParser(usage=usage)
