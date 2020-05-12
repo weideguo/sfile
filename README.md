@@ -26,10 +26,9 @@ python bin/sfile.py --help
 #start as master
 python bin/sfile.py --default_path=/tmp/a --bind=127.0.0.1:9010 --master
 #start as slave
-python bin/sfile.py --default_path=/tmp/b --bind=127.0.0.1:9011 --conn_master=127.0.0.1:9010 --slave
+python bin/sfile.py --default_path=/tmp/b --conn_master=127.0.0.1:9010 --slave
 
-#multi master
-#start as master
+#multi master in cluster
 python bin/sfile.py --default_path=/tmp/a --bind=127.0.0.1:9010 --conn_master=127.0.0.1:9011,127.0.0.1:9012
 python bin/sfile.py --default_path=/tmp/b --bind=127.0.0.1:9011 --conn_master=127.0.0.1:9010,127.0.0.1:9012
 python bin/sfile.py --default_path=/tmp/c --bind=127.0.0.1:9012 --conn_master=127.0.0.1:9010,127.0.0.1:9011

@@ -73,10 +73,15 @@ if __name__ == "__main__":
     conn_master   = options.conn_master
     socket_type   = options.socket_type
     
-    print(priority, bind, default_path, conn_master, socket_type)
+    #print(priority, bind, default_path, conn_master, socket_type)
 
+    #命令行没有则从配置文件读取
     if conn_master:
         file_lib.rewrite(_file_conn, conn_master.split(","))
+
+    #为slave不需要监听端口
+    if priority < 0:
+        bind="0:0"
 
     #不设置则不需要认证
     #auth="123456"
