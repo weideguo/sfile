@@ -123,18 +123,11 @@ class SfileServer(object):
         """
         #清空已有的md5信息，以新读取为准
         self.md5_file = set()
-        root_path=self.default_path
-        for i in os.walk(root_path):
-            if i[2]:
-                for j in i[2]:
-                    filename=os.path.join(i[0],j)
-                    if os.path.splitext(filename)[-1] in self.ignore_postfix:
-                        continue
-                    md5_str=utils.my_md5(filename)
-                    _filename = filename.split(root_path)[-1][1:]
-                    if sys.version_info<(3,0):
-                        _filename=_filename.decode("utf8")   
-                    self.md5_list.add((md5_str,_filename))
+        for filename,_filename in file_lib.get_filenames(self.default_path,self.ignore_postfix):
+            md5_str=utils.my_md5(filename)
+            if sys.version_info<(3,0):
+                _filename=_filename.decode("utf8")   
+            self.md5_list.add((md5_str,_filename))
         
         #with FileLock(self.lock_file):
         _line_list=["%s  %s" % (md5_str,filename) for md5_str,filename in self.md5_list]

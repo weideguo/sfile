@@ -92,7 +92,6 @@ if __name__ == "__main__":
     print("auth: \033[1;32m %s \033[0m" % auth)
 
     
-
     if socket_type==0:
         #使用aes加密socket
         crypt,_key,_iv=get_aes_crypt(sc)

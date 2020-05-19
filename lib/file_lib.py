@@ -114,6 +114,24 @@ def lock_file(default_path,filename,dirname="lock"):
     return os.path.join(default_path,"%s/%s" % (dirname,filename.replace("/","__")))
 
 
+def get_filenames(root_path,ignore_postfix=[]):
+    """
+    获取指定目录下的文件的完整路径，并过滤指定后缀的文件
+    文件名为byte格式
+    """
+    filenames=[]
+    for dirpath, dirs, files in os.walk(root_path):
+        for file in files:
+            filename=os.path.join(dirpath,file)
+            if os.path.splitext(filename)[-1] in ignore_postfix:
+                continue
+            
+            _filename = filename.split(root_path)[-1][1:]
+            filenames.append((filename, _filename))
+    
+    return filenames
+
+
 class SimpleConfig(object):
     """
     读取文件获取键值对，同时支持写回文件
