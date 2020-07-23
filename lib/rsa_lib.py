@@ -1,4 +1,4 @@
-#coding:utf8
+# -*- coding: utf-8 -*- 
 import Crypto.Hash.SHA1
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP

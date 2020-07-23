@@ -1,4 +1,4 @@
-#coding:utf8
+# -*- coding: utf-8 -*- 
 import hashlib
 
 def hash_bytestr_iter(bytesiter, hasher, hex_str=True):

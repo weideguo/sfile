@@ -1,4 +1,4 @@
-#coding:utf8
+# -*- coding: utf-8 -*- 
 #一些类型的封装以保证并发的安全
 import os
 import time
