@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*- 
-import Crypto.Hash.SHA1
+import Crypto.Hash.SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
-from Crypto.Hash.SHA1 import digest_size
+from Crypto.Hash.SHA512 import digest_size
 
 
 class RsaCrypt(object):
